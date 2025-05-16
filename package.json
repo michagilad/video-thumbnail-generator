@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@ffmpeg/core": "^0.12.4",
-    "@ffmpeg/ffmpeg": "^0.12.7",
+    "@ffmpeg/core": "^0.11.0",
+    "@ffmpeg/ffmpeg": "^0.11.0",
     "@ffmpeg/util": "^0.12.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -47,6 +47,7 @@
     ]
   },
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
     "http-proxy-middleware": "^3.0.5"
   }
 }

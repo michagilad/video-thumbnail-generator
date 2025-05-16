@@ -1,401 +1,285 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import styled from 'styled-components';
 
-const Container = styled.div`
-  max-width: 800px;
+const AppContainer = styled.div`
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
-  background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 2rem;
+  font-family: 'Arial', sans-serif;
+`;
+
+const Title = styled.h1`
+  color: #333;
+  text-align: center;
+  margin-bottom: 2rem;
 `;
 
 const VideoContainer = styled.div`
-  margin: 20px 0;
-  video {
-    width: 100%;
-    max-height: 500px;
-    border-radius: 8px;
-    background-color: #000;
-  }
+  margin-bottom: 2rem;
 `;
 
-const PreviewContainer = styled.div`
-  margin: 20px 0;
-  text-align: center;
-`;
-
-const ThumbnailPreview = styled.div<{ zoom: number }>`
-  width: 300px;
-  height: 300px;
+const Video = styled.video`
+  width: 100%;
+  max-width: 800px;
   margin: 0 auto;
-  overflow: hidden;
-  border: 2px solid #4CAF50;
-  border-radius: 4px;
-  position: relative;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: scale(${props => props.zoom});
-    transform-origin: center;
-    position: relative;
-    transition: transform 0.2s ease-out;
-  }
+  display: block;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 `;
 
-const ImageWrapper = styled.div<{ x: number; y: number }>`
+const ThumbnailContainer = styled.div`
+  position: relative;
+  width: 500px;
+  height: 500px;
+  margin: 2rem auto;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: #f5f5f5;
+`;
+
+const ThumbnailImage = styled.img<{ scale: number; x: number; y: number }>`
   position: absolute;
+  left: 50%;
+  top: 50%;
   width: 100%;
   height: 100%;
-  transform: translate(${props => props.x}px, ${props => props.y}px);
-  transition: transform 0.1s ease-out;
+  object-fit: cover;
+  transform-origin: center;
+  transform: translate(-50%, -50%) scale(${props => props.scale}) translate(${props => props.x}px, ${props => props.y}px);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 `;
 
-const ControlsContainer = styled.div`
-  margin: 20px auto;
-  max-width: 300px;
+const Controls = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 500px;
+  margin: 0 auto;
 `;
 
-const SliderContainer = styled.div`
-  margin: 15px 0;
-  text-align: left;
-`;
+const Button = styled.button`
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
 
-const SliderLabel = styled.label`
-  display: block;
-  margin-bottom: 5px;
-  color: #666;
-  font-size: 14px;
+  &:hover {
+    background-color: #357abd;
+  }
+
+  &:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
 `;
 
 const Slider = styled.input`
   width: 100%;
-  margin: 10px 0;
-  -webkit-appearance: none;
-  height: 4px;
-  border-radius: 2px;
-  background: #ddd;
-  outline: none;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-
-  &:hover {
-    opacity: 1;
-  }
-
-  &::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #4CAF50;
-    cursor: pointer;
-  }
-
-  &::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #4CAF50;
-    cursor: pointer;
-  }
+  margin: 1rem 0;
 `;
 
 const PanControls = styled.div`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-  margin: 15px 0;
-  max-width: 150px;
+  gap: 0.5rem;
+  max-width: 200px;
   margin: 0 auto;
 `;
 
-const PanButton = styled.button`
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  
-  &:hover {
-    background-color: #45a049;
-  }
-  
-  &:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-  }
-`;
-
-const Button = styled.button`
-  background-color: #4CAF50;
-  color: white;
-  padding: 12px 24px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  margin: 10px 0;
-  font-size: 16px;
-  &:hover {
-    background-color: #45a049;
-  }
-  &:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-  }
-`;
-
-const UploadInput = styled.input`
-  margin: 20px 0;
-  padding: 10px;
-  width: 100%;
-  border: 2px dashed #4CAF50;
-  border-radius: 4px;
-  &:hover {
-    border-color: #45a049;
-  }
-`;
-
-const StatusText = styled.p`
-  color: #666;
-  text-align: center;
-  margin: 10px 0;
-`;
-
-function App() {
-  const [videoSrc, setVideoSrc] = useState<string>('');
-  const [ffmpeg] = useState(() => new FFmpeg());
-  const [loaded, setLoaded] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
-  const [zoom, setZoom] = useState(1);
+const App: React.FC = () => {
+  const [video, setVideo] = useState<File | null>(null);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [originalFileName, setOriginalFileName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
+  const ffmpeg = createFFmpeg({ 
+    log: true,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    workerPath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.worker.js'
+  });
 
   useEffect(() => {
     const loadFFmpeg = async () => {
       try {
-        ffmpeg.on('log', ({ message }) => {
-          console.log(message);
-        });
         await ffmpeg.load();
-        console.log('FFmpeg is ready!');
-        setLoaded(true);
+        console.log('FFmpeg loaded successfully');
       } catch (error) {
-        console.error('Failed to load FFmpeg:', error);
+        console.error('Error loading FFmpeg:', error);
+        setError('Failed to load FFmpeg. Please check console for details.');
       }
     };
-
     loadFFmpeg();
-  }, [ffmpeg]);
+  }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setVideoSrc(url);
-      setThumbnailUrl(''); // Reset thumbnail when new video is uploaded
-      setPosition({ x: 0, y: 0 }); // Reset position
-      setZoom(1); // Reset zoom
-      
-      // Store the original filename without extension
-      const fileName = file.name.replace(/\.[^/.]+$/, '');
-      setOriginalFileName(fileName);
+      setVideo(file);
+      setThumbnail(null);
     }
   };
 
-  const generateThumbnail = async () => {
-    if (!videoRef.current || !loaded) return;
+  const captureFrame = useCallback(async () => {
+    if (!video || !videoRef.current) return;
 
-    setProcessing(true);
-    const currentTime = videoRef.current.currentTime;
+    setLoading(true);
+    setError(null);
     
     try {
-      const videoFile = await fetch(videoSrc).then(r => r.blob());
-      await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
-
-      await ffmpeg.exec([
-        '-ss', currentTime.toString(),
-        '-i', 'input.mp4',
-        '-vframes', '1',
-        '-vf', 'scale=1000:1000:force_original_aspect_ratio=increase,crop=1000:1000',
-        'output.jpg'
-      ]);
-
-      const data = await ffmpeg.readFile('output.jpg');
-      const blob = new Blob([data], { type: 'image/jpeg' });
-      
-      // Update the preview
-      if (thumbnailUrl) {
-        URL.revokeObjectURL(thumbnailUrl);
+      console.log('Loading FFmpeg...');
+      if (!ffmpeg.isLoaded()) {
+        await ffmpeg.load();
       }
-      const url = URL.createObjectURL(blob);
-      setThumbnailUrl(url);
-      setPosition({ x: 0, y: 0 }); // Reset position
-      setZoom(1); // Reset zoom
+      console.log('FFmpeg loaded successfully');
+
+      const currentTime = videoRef.current.currentTime;
+      const inputFileName = 'input.mp4';
+      const outputFileName = 'thumbnail.png';
+
+      ffmpeg.FS('writeFile', inputFileName, await fetchFile(video));
+
+      // Extract frame at current timestamp with improved quality
+      await ffmpeg.run(
+        '-ss',
+        currentTime.toString(),
+        '-i',
+        inputFileName,
+        '-vframes',
+        '1',
+        '-vf',
+        'scale=1000:1000:force_original_aspect_ratio=increase,crop=1000:1000',
+        '-q:v',
+        '2',
+        outputFileName
+      );
+
+      // Read the result
+      const data = ffmpeg.FS('readFile', outputFileName);
+      const thumbnailUrl = URL.createObjectURL(
+        new Blob([new Uint8Array(data.buffer)], { type: 'image/png' })
+      );
+      setThumbnail(thumbnailUrl);
+
+      // Cleanup
+      ffmpeg.FS('unlink', inputFileName);
+      ffmpeg.FS('unlink', outputFileName);
     } catch (error) {
-      console.error('Error during thumbnail generation:', error);
+      console.error('Error generating thumbnail:', error);
+      setError(error instanceof Error ? error.message : 'An error occurred while generating the thumbnail');
     } finally {
-      setProcessing(false);
+      setLoading(false);
     }
-  };
+  }, [video]);
 
-  const exportThumbnail = () => {
-    if (!thumbnailUrl || !originalFileName) return;
+  const handleExport = useCallback(async () => {
+    if (!thumbnail) return;
 
-    const a = document.createElement('a');
-    a.href = thumbnailUrl;
-    a.download = `${originalFileName}_thumb.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
+    const link = document.createElement('a');
+    link.href = thumbnail;
+    const originalFileName = video?.name || 'video';
+    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.'));
+    link.download = `${baseName}_thumb.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [thumbnail, video]);
 
-  const handlePan = (direction: 'up' | 'down' | 'left' | 'right') => {
-    const step = 10;
-    setPosition(prev => {
-      const maxOffset = (zoom - 1) * 150; // Half of container width/height
-      const newPosition = { ...prev };
-
-      switch (direction) {
-        case 'up':
-          newPosition.y = Math.max(prev.y - step, -maxOffset);
-          break;
-        case 'down':
-          newPosition.y = Math.min(prev.y + step, maxOffset);
-          break;
-        case 'left':
-          newPosition.x = Math.max(prev.x - step, -maxOffset);
-          break;
-        case 'right':
-          newPosition.x = Math.min(prev.x + step, maxOffset);
-          break;
-      }
-
-      return newPosition;
-    });
+  const handlePan = (dx: number, dy: number) => {
+    setPosition(prev => ({
+      x: Math.max(Math.min(prev.x + dx, 100), -100),
+      y: Math.max(Math.min(prev.y + dy, 100), -100),
+    }));
   };
 
   return (
-    <Container>
-      <h1 style={{ textAlign: 'center' }}>Video Thumbnail Generator</h1>
-      <p style={{ textAlign: 'center', color: '#666' }}>
-        Upload a video, pause at any frame, and export it as a 1:1 thumbnail
-      </p>
+    <AppContainer>
+      <Title>Video Thumbnail Generator</Title>
+      
+      <Controls>
+        <input
+          type="file"
+          accept="video/*"
+          onChange={handleFileChange}
+          style={{ marginBottom: '1rem' }}
+        />
+      </Controls>
 
-      <UploadInput
-        type="file"
-        accept="video/*"
-        onChange={handleFileUpload}
-      />
-
-      <VideoContainer>
-        {videoSrc && (
-          <video
+      {video && (
+        <VideoContainer>
+          <Video
             ref={videoRef}
-            src={videoSrc}
+            src={URL.createObjectURL(video)}
             controls
-            playsInline
           />
-        )}
-      </VideoContainer>
-
-      {!loaded && (
-        <StatusText>Loading FFmpeg.wasm...</StatusText>
+          <Controls>
+            <Button
+              onClick={captureFrame}
+              disabled={loading}
+            >
+              {loading ? 'Generating...' : 'Capture Thumbnail'}
+            </Button>
+          </Controls>
+        </VideoContainer>
       )}
 
-      <Button
-        onClick={generateThumbnail}
-        disabled={!videoSrc || !loaded || processing}
-        style={{ display: 'block', margin: '20px auto' }}
-      >
-        {processing ? 'Processing...' : 'Generate Preview'}
-      </Button>
+      {thumbnail && (
+        <>
+          <ThumbnailContainer>
+            <ThumbnailImage
+              src={thumbnail}
+              scale={scale}
+              x={position.x}
+              y={position.y}
+              alt="Thumbnail"
+            />
+          </ThumbnailContainer>
 
-      {thumbnailUrl && (
-        <PreviewContainer>
-          <h3>Thumbnail Preview</h3>
-          <ThumbnailPreview zoom={zoom}>
-            <ImageWrapper x={position.x} y={position.y}>
-              <img src={thumbnailUrl} alt="Thumbnail preview" />
-            </ImageWrapper>
-          </ThumbnailPreview>
-          
-          <ControlsContainer>
-            <SliderContainer>
-              <SliderLabel>Zoom: {Math.round(zoom * 100)}%</SliderLabel>
+          <Controls>
+            <div>
+              <label>Zoom: {scale.toFixed(1)}x</label>
               <Slider
                 type="range"
                 min="1"
                 max="3"
                 step="0.1"
-                value={zoom}
-                onChange={(e) => {
-                  const newZoom = parseFloat(e.target.value);
-                  setZoom(newZoom);
-                  // Adjust position to stay within bounds when zooming out
-                  const maxOffset = (newZoom - 1) * 150;
-                  setPosition(prev => ({
-                    x: Math.max(Math.min(prev.x, maxOffset), -maxOffset),
-                    y: Math.max(Math.min(prev.y, maxOffset), -maxOffset)
-                  }));
-                }}
+                value={scale}
+                onChange={(e) => setScale(Number(e.target.value))}
               />
-            </SliderContainer>
+            </div>
 
             <PanControls>
-              <div /> {/* Empty cell for grid layout */}
-              <PanButton
-                onClick={() => handlePan('up')}
-                disabled={zoom === 1}
-              >
-                ↑
-              </PanButton>
-              <div /> {/* Empty cell for grid layout */}
-              
-              <PanButton
-                onClick={() => handlePan('left')}
-                disabled={zoom === 1}
-              >
-                ←
-              </PanButton>
-              <div /> {/* Center cell */}
-              <PanButton
-                onClick={() => handlePan('right')}
-                disabled={zoom === 1}
-              >
-                →
-              </PanButton>
-              
-              <div /> {/* Empty cell for grid layout */}
-              <PanButton
-                onClick={() => handlePan('down')}
-                disabled={zoom === 1}
-              >
-                ↓
-              </PanButton>
-              <div /> {/* Empty cell for grid layout */}
+              <Button onClick={() => handlePan(-10, 0)}>←</Button>
+              <Button onClick={() => handlePan(0, -10)}>↑</Button>
+              <Button onClick={() => handlePan(10, 0)}>→</Button>
+              <div></div>
+              <Button onClick={() => handlePan(0, 10)}>↓</Button>
+              <div></div>
             </PanControls>
-          </ControlsContainer>
 
-          <Button
-            onClick={exportThumbnail}
-            style={{ marginTop: '20px' }}
-          >
-            Export Thumbnail
-          </Button>
-        </PreviewContainer>
+            <Button onClick={handleExport}>
+              Export Thumbnail
+            </Button>
+          </Controls>
+        </>
       )}
-    </Container>
+
+      {error && (
+        <div style={{ color: 'red', textAlign: 'center', margin: '1rem 0' }}>
+          Error: {error}
+        </div>
+      )}
+    </AppContainer>
   );
-}
+};
 
 export default App;
