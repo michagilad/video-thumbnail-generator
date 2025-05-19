@@ -184,15 +184,43 @@ const App: React.FC = () => {
   const handleExport = useCallback(async () => {
     if (!thumbnail) return;
 
-    const link = document.createElement('a');
-    link.href = thumbnail;
-    const originalFileName = video?.name || 'video';
-    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.'));
-    link.download = `${baseName}_thumb.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [thumbnail, video]);
+    // Create a hidden canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 500; // Match ThumbnailContainer size
+    canvas.height = 500;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw the image with current scale and pan
+    const img = new window.Image();
+    img.onload = () => {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Set transform to match preview
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(position.x, position.y);
+      ctx.drawImage(img, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+      ctx.restore();
+
+      // Export canvas as PNG
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const originalFileName = video?.name || 'video';
+        const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.'));
+        link.download = `${baseName}_thumb.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    };
+    img.src = thumbnail;
+  }, [thumbnail, video, scale, position]);
 
   const handlePan = (dx: number, dy: number) => {
     setPosition(prev => ({
