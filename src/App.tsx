@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import styled from 'styled-components';
 
@@ -28,16 +28,15 @@ const Video = styled.video`
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 `;
 
-const ThumbnailContainer = styled.div<{ width: number; height: number }>`
+const ThumbnailContainer = styled.div`
   position: relative;
-  width: ${props => props.width}px;
-  height: ${props => props.height}px;
+  width: 500px;
+  height: 500px;
   margin: 2rem auto;
   overflow: hidden;
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   background: #f5f5f5;
-  transition: width 0.3s ease, height 0.3s ease;
 `;
 
 const ThumbnailImage = styled.img<{ scale: number; x: number; y: number }>`
@@ -94,47 +93,6 @@ const PanControls = styled.div`
   margin: 0 auto;
 `;
 
-const ToggleContainer = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin: 1rem 0;
-`;
-
-const ToggleLabel = styled.span<{ active: boolean }>`
-  font-size: 0.9rem;
-  font-weight: ${props => props.active ? '600' : '400'};
-  color: ${props => props.active ? '#4a90e2' : '#888'};
-  transition: color 0.2s, font-weight 0.2s;
-  cursor: pointer;
-`;
-
-const ToggleTrack = styled.button<{ isRight: boolean }>`
-  position: relative;
-  width: 48px;
-  height: 26px;
-  background: ${props => props.isRight ? '#4a90e2' : '#4a90e2'};
-  border-radius: 13px;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  transition: background 0.2s;
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: ${props => props.isRight ? '25px' : '3px'};
-    width: 20px;
-    height: 20px;
-    background: white;
-    border-radius: 50%;
-    transition: left 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-  }
-`;
-
 const App: React.FC = () => {
   const [video, setVideo] = useState<File | null>(null);
   const [thumbnail, setThumbnail] = useState<string | null>(null);
@@ -142,25 +100,15 @@ const App: React.FC = () => {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [error, setError] = useState<string | null>(null);
-  const [aspectMode, setAspectMode] = useState<'square' | 'original'>('original');
-  const [videoDims, setVideoDims] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   
-  const videoUrl = useMemo(() => {
-    if (!video) return null;
-    return URL.createObjectURL(video);
-  }, [video]);
-
   const videoRef = useRef<HTMLVideoElement>(null);
-  const ffmpegRef = useRef(
-    createFFmpeg({
-      log: false,
-      corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-      workerPath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.worker.js',
-    })
-  );
+  const ffmpeg = createFFmpeg({ 
+    log: true,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    workerPath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.worker.js'
+  });
 
   useEffect(() => {
-    const ffmpeg = ffmpegRef.current;
     const loadFFmpeg = async () => {
       try {
         await ffmpeg.load();
@@ -178,31 +126,21 @@ const App: React.FC = () => {
     if (file) {
       setVideo(file);
       setThumbnail(null);
-      setScale(1);
-      setPosition({ x: 0, y: 0 });
-    }
-  };
-
-  const handleVideoLoaded = () => {
-    if (videoRef.current) {
-      setVideoDims({
-        w: videoRef.current.videoWidth,
-        h: videoRef.current.videoHeight,
-      });
     }
   };
 
   const captureFrame = useCallback(async () => {
     if (!video || !videoRef.current) return;
 
-    const ffmpeg = ffmpegRef.current;
     setLoading(true);
     setError(null);
     
     try {
+      console.log('Loading FFmpeg...');
       if (!ffmpeg.isLoaded()) {
         await ffmpeg.load();
       }
+      console.log('FFmpeg loaded successfully');
 
       const currentTime = videoRef.current.currentTime;
       const inputFileName = 'input.mp4';
@@ -210,10 +148,7 @@ const App: React.FC = () => {
 
       ffmpeg.FS('writeFile', inputFileName, await fetchFile(video));
 
-      const vf = aspectMode === 'square'
-        ? 'scale=1000:1000:force_original_aspect_ratio=increase,crop=1000:1000'
-        : 'scale=1000:-2';
-
+      // Extract frame at current timestamp with improved quality
       await ffmpeg.run(
         '-ss',
         currentTime.toString(),
@@ -222,18 +157,20 @@ const App: React.FC = () => {
         '-vframes',
         '1',
         '-vf',
-        vf,
+        'scale=1000:1000:force_original_aspect_ratio=increase,crop=1000:1000',
         '-q:v',
         '2',
         outputFileName
       );
 
+      // Read the result
       const data = ffmpeg.FS('readFile', outputFileName);
       const thumbnailUrl = URL.createObjectURL(
         new Blob([new Uint8Array(data.buffer)], { type: 'image/png' })
       );
       setThumbnail(thumbnailUrl);
 
+      // Cleanup
       ffmpeg.FS('unlink', inputFileName);
       ffmpeg.FS('unlink', outputFileName);
     } catch (error) {
@@ -242,21 +179,24 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [video, aspectMode]);
+  }, [video]);
 
   const handleExport = useCallback(async () => {
     if (!thumbnail) return;
 
-    const { w: cw, h: ch } = getThumbSize();
+    // Create a hidden canvas
     const canvas = document.createElement('canvas');
-    canvas.width = cw;
-    canvas.height = ch;
+    canvas.width = 500; // Match ThumbnailContainer size
+    canvas.height = 500;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Draw the image with current scale and pan
     const img = new window.Image();
     img.onload = () => {
+      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Set transform to match preview
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.scale(scale, scale);
@@ -264,6 +204,7 @@ const App: React.FC = () => {
       ctx.drawImage(img, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
       ctx.restore();
 
+      // Export canvas as PNG
       canvas.toBlob(blob => {
         if (!blob) return;
         const url = URL.createObjectURL(blob);
@@ -279,7 +220,7 @@ const App: React.FC = () => {
       }, 'image/png');
     };
     img.src = thumbnail;
-  }, [thumbnail, video, scale, position, aspectMode, videoDims]);
+  }, [thumbnail, video, scale, position]);
 
   const handlePan = (dx: number, dy: number) => {
     setPosition(prev => ({
@@ -287,16 +228,6 @@ const App: React.FC = () => {
       y: Math.max(Math.min(prev.y + dy, 100), -100),
     }));
   };
-
-  const getThumbSize = () => {
-    if (aspectMode === 'square') return { w: 500, h: 500 };
-    const maxDim = 500;
-    const ratio = videoDims.w / videoDims.h;
-    if (ratio >= 1) return { w: maxDim, h: Math.round(maxDim / ratio) };
-    return { w: Math.round(maxDim * ratio), h: maxDim };
-  };
-
-  const thumbSize = getThumbSize();
 
   return (
     <AppContainer>
@@ -315,30 +246,10 @@ const App: React.FC = () => {
         <VideoContainer>
           <Video
             ref={videoRef}
-            src={videoUrl!}
+            src={URL.createObjectURL(video)}
             controls
-            onLoadedMetadata={handleVideoLoaded}
           />
           <Controls>
-            <ToggleContainer>
-              <ToggleLabel
-                active={aspectMode === 'square'}
-                onClick={() => setAspectMode('square')}
-              >
-                1:1
-              </ToggleLabel>
-              <ToggleTrack
-                isRight={aspectMode === 'original'}
-                onClick={() => setAspectMode(aspectMode === 'square' ? 'original' : 'square')}
-                aria-label="Toggle aspect ratio"
-              />
-              <ToggleLabel
-                active={aspectMode === 'original'}
-                onClick={() => setAspectMode('original')}
-              >
-                Original
-              </ToggleLabel>
-            </ToggleContainer>
             <Button
               onClick={captureFrame}
               disabled={loading}
@@ -351,7 +262,7 @@ const App: React.FC = () => {
 
       {thumbnail && (
         <>
-          <ThumbnailContainer width={thumbSize.w} height={thumbSize.h}>
+          <ThumbnailContainer>
             <ThumbnailImage
               src={thumbnail}
               scale={scale}
